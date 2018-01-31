@@ -1,7 +1,8 @@
-## API tools collection
+API tools collection
+====================
 
 Academy games analysis
-======================
+----------------------
 
 Work in progress tool to read player and game data from Academy (Mobile) games
 and create player statistics. Currently all data is downloaded and parsed on

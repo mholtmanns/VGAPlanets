@@ -142,6 +142,8 @@ def player_add(all_players, name, gameid, stat, value):
 
 
 def crop_scores(player):
+    """Select specific only parts of the full score object
+    """
     score = {}
     score['rank'] = player['finishrank']
     if player['username'] == 'dead':
@@ -162,6 +164,27 @@ def crop_scores(player):
 
 
 def get_game_players(all_players, gameid):
+    """
+    Add player data to the global playerlist for a given game ID
+    based both on event and actual game data.
+
+    Known event ids:
+        *  1: Game created
+        *  2: Game started
+        *  3: <player> joined
+        *  4: ??
+        *  5: Win condition
+        *  6: <player> has won
+        *  7: <player> in slot X are now dead
+        *  8: <player> has resigned
+        *  9: ???
+        * 10: <player> has dropped
+
+    Args:
+        * all_players  (:obj:`dict`): Dict containing all player stats
+        * gameid (int): Game ID
+    """
+
     url = BASE + 'game/loadevents'
     payload = {'gameid': gameid}
     response = rq.get(url, params=payload)
@@ -176,25 +199,16 @@ def get_game_players(all_players, gameid):
     json_data = response.json()
     player_info = json_data["players"]
 
-    # Eventtypes:
-    # 1: Game created
-    # 2: Game started
-    # 3: <player> joined
-    # 4: ??
-    # 5: Win condition
-    # 6: <player> has won
-    # 7: <player> in slot X are now dead
-    # 8: <player> has resigned
-    # 9: ???
-    # 10:<player> has dropped
+    # Dict for the last seen player of a certain race
     last_per_race = {}
-    # First we need to go through all normal "joined" Events to fill the ACCOUNT_CACHE
+    # First we need to go through all normal "joined" Events to fill
+    # the ACCOUNT_CACHE; the events are not ordered chronological
     for event in events:
-        t = event['eventtype']
-        if t == 3:
+        if event['eventtype']:
             text = event['description']
             name = text[:(text.find('has joined')-1)]
             name = (name.rstrip(' +')).replace('+', ' ')
+            # playerid is actually the game slot
             if event['playerid'] not in last_per_race:
                 last_per_race[event['playerid']] = {}
                 last_per_race[event['playerid']]['turn'] = -1
@@ -204,7 +218,7 @@ def get_game_players(all_players, gameid):
                 last_per_race[event['playerid']]['name'] = name
             
             ACCOUNT_CACHE[event['accountid']] = name
-
+            # add this game's race to the players list
             player_add(all_players, name, gameid, 'race',
                        RACES[event['playerid']])
 
@@ -230,50 +244,23 @@ def get_game_players(all_players, gameid):
         if t in [4, 9] or t > 10:
             print('========>>>>> ' + str(event['eventtype']) + ': ' + event['description'])
 
-    # Add scores for final players
+    # Add scores for players that were last seen for a race
     for player in player_info:
-        score = crop_scores(player)
         if player['username'] != 'dead':
+            # Check in the  player that are still living 
             player_add(all_players, last_per_race[player['id']]['name'], gameid, 'status',
                        {0: 'alive', 1: player['score']['turn']})
             # print ('Added status for ',last_per_race[player['id']]['name'])
-            
+
+        score = crop_scores(player)
+        # Register the select final score for all players dead or otherwise
         player_add(all_players, last_per_race[player['id']]['name'],
                    gameid, 'score', score)
 
-
-def create_player_stats(players):
-    # Count total wins per player, automatically gives unique winners
-    plen = len(players)
-    winner = {}
-    for i, player in enumerate(players):
-        name = player['Winner']
-        print_progress(i+1, plen, prefix = 'Winner stats:', suffix = 'Done')
-        if name == 'n/a':
-            continue
-        for key, value in player.items():
-            if key == 'Winner' or key == 'Id':
-                continue
-            if value == name:
-                race = key
-                break
-        if name in winner:
-            if race in winner[name]:
-                winner[name][race] += 1
-            else:
-                winner[name][race] = 1
-        else:
-            winner[name] = {}
-            winner[name][race] = 1
-
-        # Differentiate per race wins per player - harder
-    for n in winner:
-        if n == 'n/a':
-            continue
-        print (winner[n])
         
 def write_games_csv(games, fieldnames, filename='academygames.csv'):
-    
+    """Write out the game dict to a CSV file
+    """
     with open('academygames.csv', 'w', newline='') as csvfile:
         fieldnames = gamekeys
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -288,7 +275,7 @@ def main():
     games = get_academy_games(gamekeys)
     gameplayers = {}
     glen = len(games)
-    print ('number of games:', glen)
+    # print ('number of games:', glen)
     for i, game in enumerate(games):
         game['datecreated'] = date_converter(game['datecreated'])
         game['dateended'] = date_converter(game['dateended'])
