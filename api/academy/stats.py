@@ -21,6 +21,7 @@ import csv
 
 from operator import itemgetter as iget
 from datetime import datetime
+from pathlib import Path
 
 BASE='http://api.planets.nu/'
 RACES={ 1: 'The Solar Federation',
@@ -32,6 +33,7 @@ RACES={ 1: 'The Solar Federation',
         7: 'The Missing Colonies of Man'}
 
 ACCOUNT_CACHE = {}
+DATA_FILE = 'player_data.json'
 
 # Progress bar code copied from:
 #     https://gist.github.com/aubricus/f91fb55dc6ba5557fbab06119420dd6a
@@ -63,7 +65,7 @@ def print_progress(iteration, total, prefix='', suffix='', decimals=1, bar_lengt
 
 def date_converter(datestr):
     # IN: 2/17/2017 4:43:38 AM - OUT:  2017-02-17 04:43:38 
-    return datetime.strptime(datestr, '%m/%d/%Y %I:%M:%S %p')
+    return str(datetime.strptime(datestr, '%m/%d/%Y %I:%M:%S %p'))
 
 
 def get_academy_games(keys_wanted, maxgames=0):
@@ -204,7 +206,7 @@ def get_game_players(all_players, gameid):
     # First we need to go through all normal "joined" Events to fill
     # the ACCOUNT_CACHE; the events are not ordered chronological
     for event in events:
-        if event['eventtype']:
+        if event['eventtype'] ==  3:
             text = event['description']
             name = text[:(text.find('has joined')-1)]
             name = (name.rstrip(' +')).replace('+', ' ')
@@ -219,6 +221,7 @@ def get_game_players(all_players, gameid):
             
             ACCOUNT_CACHE[event['accountid']] = name
             # add this game's race to the players list
+            # print (name, ' ', gameid, ' ', event['playerid'])
             player_add(all_players, name, gameid, 'race',
                        RACES[event['playerid']])
 
@@ -269,22 +272,97 @@ def write_games_csv(games, fieldnames, filename='academygames.csv'):
         for game in games:
             writer.writerow(game)
 
+def check_load_data(games_actual, gcount, filename):
+    """Check if we have old data and compare the game count to actual
+    
+    Args:
+        games_actual (int): number of games from live API data
+        filename (str): File name to load data from
+
+    Returns:
+        players (dict): Either stored data if it exists or None
+        games (list): If live data has more entries than the stored data
+            return the missing game IDs
+    """
+    try:
+        f = open(filename,'r')
+    except FileNotFoundError:
+        return None, None
+    except IOError as e:
+        print ("I/O error({0}): {1}".format(e.errno, e.strerror))
+    except: #handle other exceptions such as attribute errors
+        print ("Unexpected error:", sys.exc_info()[0])
+    else:
+        try:
+            data = json.load(f)
+        except:
+            print ("Unexpected error:", sys.exc_info()[0])
+            data = {}
+            data['players'] = None
+            all_gameids = None
+        else:
+            if data['gamecount'] == gcount:
+                return data['players'], None
+            if data['gamecount'] > gcount:
+                assert 0, 'Stored data corrupted! Remove file {} and re-run!'.format(filename)
+
+            # Need to find the missing IDs
+            stored_gameids = set()
+            for game in data['games']:
+                stored_gameids.add(game['id'])
+
+            all_gameids = set()
+            for game in games_actual:
+                all_gameids.add(game['id'])
+            all_gameids.difference_update(stored_gameids)
+
+            assert len(all_gameids) > 0, 'Gamecount should differ, still no new game IDs found!'
+            print ('{0} new game(s) found, IDs are: {1}'.format(len(all_gameids), all_gameids))
+
+        f.close()
+        return data['players'], all_gameids
 
 def main():
+    # define desired keys to load for every academy games
     gamekeys = ['id', 'name', 'status', 'datecreated', 'dateended', 'turn']
     games = get_academy_games(gamekeys)
-    gameplayers = {}
     glen = len(games)
-    # print ('number of games:', glen)
-    for i, game in enumerate(games):
-        game['datecreated'] = date_converter(game['datecreated'])
-        game['dateended'] = date_converter(game['dateended'])
-        # Get the players of each game
-        get_game_players(gameplayers, game['id'])
-        print_progress(i+1, glen, prefix = 'Getting player stats:', suffix = 'Done')
+
+    mark_for_save = False
+    gameplayers, gameids = check_load_data(games, glen, DATA_FILE)
+    if gameplayers is None:
+        # First time storing or re-reading data
+        gameplayers = {}
+        mark_for_save = True
+        for i, game in enumerate(games):
+            game['datecreated'] = date_converter(game['datecreated'])
+            game['dateended'] = date_converter(game['dateended'])
+            # Get the players of each game
+            get_game_players(gameplayers, game['id'])
+            print_progress(i+1, glen, prefix = 'Getting player stats:', suffix = 'Done')
+    elif gameids is not None:
+        mark_for_save = True
+        # We need to read data for the new gameids, games already holds the current data
+        for i, id in enumerate(gameids):
+            get_game_players(gameplayers, id)
+            print_progress(i+1, len(gameids), prefix = 'Getting player stats:', suffix = 'Done')
+
+    stored_data = {'players': gameplayers, 'games': games, 'gamecount': glen}
+
+    if mark_for_save:
+        try:
+            f = open(DATA_FILE, 'w')
+        except IOError as e:
+            print ("I/O error({0}): {1}".format(e.errno, e.strerror))
+        except: #handle other exceptions such as attribute errors
+            print ("Unexpected error:", sys.exc_info()[0])
+        else:
+            json.dump(stored_data, f)
+            f.close()
+    else:
+        print('No new games found.')
 
     games.sort(key=iget('datecreated'))
-
 
     # Dump player dict as JSON for debugging
     # gp = json.dumps(gameplayers)
