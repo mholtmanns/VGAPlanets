@@ -77,7 +77,7 @@ def get_academy_games(keys_wanted, maxgames=0):
         maxgames (int, optional): How many games to read data of, defaults to all
 
     Returns:
-        dict with specified keys of game data
+        dict with specified keys of game data or None
     """
     url = BASE + 'games/list'
     # Get all Academy games that are Running, Finished or On Hold
@@ -88,8 +88,8 @@ def get_academy_games(keys_wanted, maxgames=0):
     # Access the API
     r = rq.get(url, params=payload)
     games_json = r.json()
-    gamelist = []
     glen = len(games_json)
+    gamelist = {}
     for i, game in enumerate(games_json):
         # Ignore the early test games
         if 'Test' in game['shortdescription']:
@@ -97,9 +97,11 @@ def get_academy_games(keys_wanted, maxgames=0):
         # filter desired keys
         l = {k: game.get(k, None) for k in keys_wanted}
         l['status'] = status[l['status']]
-        gamelist.append(l)
+        gamelist[l['id']] = l
         print_progress(i+1, glen, prefix = 'Getting games:', suffix = 'Done')
 
+    if len(gamelist) == 0:
+        return None
     return gamelist
 
 
@@ -145,11 +147,19 @@ def player_add(all_players, name, gameid, stat, value):
 
 def crop_scores(player):
     """Select specific only parts of the full score object
+
+    Args:
+        player (dict): player object from which to read the score
+
+    Returns:
+        score (dict): filtered scores from the game data
     """
     score = {}
-    score['rank'] = player['finishrank']
-    if player['username'] == 'dead':
+    # if there is no active username, nobody finished, but the
+    # last seen player might still get a valid rank
+    if player['username'] in ['dead', 'open']:
         score['finished'] = 0
+        score['rank'] = player['finishrank']
         return score
     
     keys_wanted = [
@@ -162,6 +172,7 @@ def crop_scores(player):
     ]
     score = {k: player['score'].get(k, None) for k in keys_wanted}
     score['finished'] = 1
+    score['rank'] = player['finishrank']
     return score
 
 
@@ -260,17 +271,6 @@ def get_game_players(all_players, gameid):
         player_add(all_players, last_per_race[player['id']]['name'],
                    gameid, 'score', score)
 
-        
-def write_games_csv(games, fieldnames, filename='academygames.csv'):
-    """Write out the game dict to a CSV file
-    """
-    with open('academygames.csv', 'w', newline='') as csvfile:
-        fieldnames = gamekeys
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-
-        writer.writeheader()
-        for game in games:
-            writer.writerow(game)
 
 def check_load_data(games_actual, gcount, filename):
     """Check if we have old data and compare the game count to actual
@@ -280,7 +280,7 @@ def check_load_data(games_actual, gcount, filename):
         filename (str): File name to load data from
 
     Returns:
-        players (dict): Either stored data if it exists or None
+        data (dict): Either stored data if it exists or None
         games (list): If live data has more entries than the stored data
             return the missing game IDs
     """
@@ -302,52 +302,88 @@ def check_load_data(games_actual, gcount, filename):
             all_gameids = None
         else:
             if data['gamecount'] == gcount:
-                return data['players'], None
-            if data['gamecount'] > gcount:
+                all_gameids = None
+            elif data['gamecount'] > gcount:
                 assert 0, 'Stored data corrupted! Remove file {} and re-run!'.format(filename)
+            else:
+                # Need to find the missing IDs
+                stored_gameids = set()
+                for game, fields in data['games'].items():
+                    stored_gameids.add(fields['id'])
+                print (stored_gameids)
+                all_gameids = set()
+                for game in games_actual:
+                    all_gameids.add(game)
+                print (all_gameids)
+                all_gameids.difference_update(stored_gameids)
+                print (all_gameids)
 
-            # Need to find the missing IDs
-            stored_gameids = set()
-            for game in data['games']:
-                stored_gameids.add(game['id'])
-
-            all_gameids = set()
-            for game in games_actual:
-                all_gameids.add(game['id'])
-            all_gameids.difference_update(stored_gameids)
-
-            assert len(all_gameids) > 0, 'Gamecount should differ, still no new game IDs found!'
-            print ('{0} new game(s) found, IDs are: {1}'.format(len(all_gameids), all_gameids))
+                assert len(all_gameids) > 0, 'Gamecount should differ, still no new game IDs found!'
+                print ('{0} new game(s) found, IDs are: {1}'.format(len(all_gameids), all_gameids))
 
         f.close()
-        return data['players'], all_gameids
+        return data, all_gameids
 
-def main():
+def add_winning_player(games, players, new_gameids=None):
+    # Add the winning player (rank 1) to the games list
+    i = 0
+    for playername, player in players.items():
+        # print (playername)
+        for gameid, playerdata in player.items():
+            # print (gamedata['players'][player][gameid])
+            check = False
+            if new_gameids is None:
+                check = True
+            elif gameid in new_gameids:
+                check = True
+            if check and 'score' in playerdata.keys():
+                gdata = playerdata['score']
+                if gdata['rank'] == 1:
+                    # print (playername, ' has won Game ',gameid)
+                    assert games[gameid], 'For some reason GameID {} is not registered yet!'.format(gameid)
+                    games[gameid]['winner'] = playername
+        print_progress(i+1, len(players), prefix = 'Getting game winner:', suffix = 'Done')
+        i += 1
+    
+def load_gamedata():
     # define desired keys to load for every academy games
-    gamekeys = ['id', 'name', 'status', 'datecreated', 'dateended', 'turn']
-    games = get_academy_games(gamekeys)
-    glen = len(games)
+    gamekeys = ['id', 'name', 'status', 'datecreated', 'dateended', 'turn', 'winner']
+    games = get_academy_games(gamekeys, maxgames = 16)
+    # First check if we even read any games from the API
+    if games is None:
+        return None
 
+    glen = len(games)
     mark_for_save = False
-    gameplayers, gameids = check_load_data(games, glen, DATA_FILE)
-    if gameplayers is None:
+    stored_data, gameids = check_load_data(games, glen, DATA_FILE)
+    if stored_data is None:
         # First time storing or re-reading data
         gameplayers = {}
         mark_for_save = True
-        for i, game in enumerate(games):
+        i = 0
+        for gameid, game in games.items():
             game['datecreated'] = date_converter(game['datecreated'])
             game['dateended'] = date_converter(game['dateended'])
             # Get the players of each game
-            get_game_players(gameplayers, game['id'])
+            get_game_players(gameplayers, gameid)
             print_progress(i+1, glen, prefix = 'Getting player stats:', suffix = 'Done')
+            i += 1
+        add_winning_player(games, gameplayers)
+        stored_data = {'games': games, 'players': gameplayers, 'gamecount': glen}
     elif gameids is not None:
+        storedgames = stored_data['games']
+        gameplayers = stored_data['players']
         mark_for_save = True
-        # We need to read data for the new gameids, games already holds the current data
-        for i, id in enumerate(gameids):
-            get_game_players(gameplayers, id)
-            print_progress(i+1, len(gameids), prefix = 'Getting player stats:', suffix = 'Done')
-
-    stored_data = {'players': gameplayers, 'games': games, 'gamecount': glen}
+        # We need to read data for the new gameids
+        for i, gameid in enumerate(gameids):
+            newgame = games[gameid]
+            newgame['datecreated'] = date_converter(newgame['datecreated'])
+            newgame['dateended'] = date_converter(newgame['dateended'])
+            storedgames[gameid] = games[gameid]
+            get_game_players(gameplayers, gameid)
+            print_progress(i+1, len(gameids), prefix = 'Updating games and players:', suffix = 'Done')
+        add_winning_player(storedgames, gameplayers, gameids)
+        stored_data['gamecount'] += len(gameids)
 
     if mark_for_save:
         try:
@@ -362,10 +398,7 @@ def main():
     else:
         print('No new games found.')
 
-    games.sort(key=iget('datecreated'))
-
-    # Dump player dict as JSON for debugging
-    # gp = json.dumps(gameplayers)
+    return stored_data
             
 if __name__ == "__main__":
-    main()
+    _ = load_gamedata()
