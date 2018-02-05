@@ -17,14 +17,23 @@ import sys
 import json
 import csv
 
+import apiaccess as aa
 from operator import itemgetter as iget
-from apiaccess import load_gamedata
 
-def write_games_csv(games, fieldnames, filename='academygames.csv'):
+
+def get_winner_race(data, gameid, playername):
+    if  type(gameid) is int:
+        gameid = str(gameid)
+    if data['games'][gameid]['status'] == 'Finished':
+        return data['players'][playername][gameid]['race'][0]
+    return 'No Race'
+
+
+def write_games_csv(data, fieldnames, filename='academygames.csv'):
     """Write out the game overview dict to a CSV file
     """
     gamelist = []
-    for game, gamedata in games.items():
+    for game, gamedata in data['games'].items():
         gamelist.append(gamedata)
     print (gamelist)
     gamelist.sort(key=iget('datecreated'))
@@ -35,11 +44,12 @@ def write_games_csv(games, fieldnames, filename='academygames.csv'):
 
         writer.writeheader()
         for game in gamelist:
+            game['race'] = get_winner_race(data, game['id'], game['winner'])
             writer.writerow(game)
 
 
 if __name__ == "__main__":
-    gamedata = load_gamedata()
-    gamekeys = ['id', 'name', 'status', 'datecreated', 'dateended', 'turn', 'winner']
+    gamedata = aa.load_gamedata()
+    gamekeys = ['id', 'name', 'status', 'datecreated', 'dateended', 'turn', 'winner', 'race']
 
-    write_games_csv(gamedata['games'], gamekeys)
+    write_games_csv(gamedata, gamekeys)

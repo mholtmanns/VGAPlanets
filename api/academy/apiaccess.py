@@ -97,7 +97,7 @@ def get_academy_games(keys_wanted, maxgames=0):
         # filter desired keys
         l = {k: game.get(k, None) for k in keys_wanted}
         l['status'] = status[l['status']]
-        gamelist[l['id']] = l
+        gamelist[str(l['id'])] = l
         print_progress(i+1, glen, prefix = 'Getting games:', suffix = 'Done')
 
     if len(gamelist) == 0:
@@ -308,15 +308,16 @@ def check_load_data(games_actual, gcount, filename):
             else:
                 # Need to find the missing IDs
                 stored_gameids = set()
-                for game, fields in data['games'].items():
-                    stored_gameids.add(fields['id'])
-                print (stored_gameids)
+                # for game, fields in data['games'].items():
+                #    stored_gameids.add(fields['id'])
+                for gid in data['games']:
+                    stored_gameids.add(gid)
+                print ('stored games: ', stored_gameids)
                 all_gameids = set()
                 for game in games_actual:
                     all_gameids.add(game)
-                print (all_gameids)
+                print ('all games: ', all_gameids)
                 all_gameids.difference_update(stored_gameids)
-                print (all_gameids)
 
                 assert len(all_gameids) > 0, 'Gamecount should differ, still no new game IDs found!'
                 print ('{0} new game(s) found, IDs are: {1}'.format(len(all_gameids), all_gameids))
@@ -344,11 +345,14 @@ def add_winning_player(games, players, new_gameids=None):
                     games[gameid]['winner'] = playername
         print_progress(i+1, len(players), prefix = 'Getting game winner:', suffix = 'Done')
         i += 1
-    
+
+
 def load_gamedata():
     # define desired keys to load for every academy games
     gamekeys = ['id', 'name', 'status', 'datecreated', 'dateended', 'turn', 'winner']
-    games = get_academy_games(gamekeys, maxgames = 16)
+    # setting maxgames to 17 gives three results since the first 14 are test games
+    # games = get_academy_games(gamekeys, maxgames = 17)
+    games = get_academy_games(gamekeys)
     # First check if we even read any games from the API
     if games is None:
         return None
