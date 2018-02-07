@@ -43,7 +43,7 @@ def print_progress(iteration, total, prefix='', suffix='', decimals=1, bar_lengt
     """
     Call in a loop to create terminal progress bar
 
-    @params:
+    Args:
         iteration   - Required  : current iteration (Int)
         total       - Required  : total iterations (Int)
         prefix      - Optional  : prefix string (Str)
@@ -105,10 +105,10 @@ def get_academy_games(keys_wanted, maxgames=0):
     return gamelist
 
 
-def player_add(all_players, name, gameid, stat, value):
+def player_add(all_players, name, gameid, stat, value, accountid=0):
     """Register a certain statistic for a given player name.
-    
-     Stores statistics for a given player which are of the types:
+    Stores statistics for a given player which are of the types:
+
      * Which game (ID) he played in
      * What race he played
      * If he won/resigned/dropped/joined later
@@ -119,10 +119,13 @@ def player_add(all_players, name, gameid, stat, value):
         name (str): Player name
         gameid (str): Game Id as string
         stat (str): Statistic to register for this player, can be one of
-            * race: register the race
-            * status: did the player finish (rank), resign, drop or die
-            * score: stores the score object for this game and player
-        value (:obj:): payload for the given stat
+
+          * race: register the race
+          * status: did the player finish (rank), resign, drop or die
+          * score: stores the score object for this game and player
+        value (obj): payload for the given stat
+        accountid (int): On first adding a player pass the account ID
+                         (optional)
     """
     # List of allowed stats
     stats = ['race', 'status', 'score']
@@ -130,6 +133,9 @@ def player_add(all_players, name, gameid, stat, value):
 
     if name not in all_players:
         all_players[name] = {}
+        # save the account ID of the player
+        if accountid != 0:
+            all_players[name]['accountid'] = accountid
 
     if gameid not in all_players[name]:
         all_players[name][gameid] = {}
@@ -182,6 +188,7 @@ def get_game_players(all_players, gameid):
     based both on event and actual game data.
 
     Known event ids:
+
         *  1: Game created
         *  2: Game started
         *  3: <player> joined
@@ -194,8 +201,8 @@ def get_game_players(all_players, gameid):
         * 10: <player> has dropped
 
     Args:
-        * all_players  (:obj:`dict`): Dict containing all player stats
-        * gameid (int): Game ID
+        all_players  (:obj:`dict`): Dict containing all player stats
+        gameid (int): Game ID
     """
 
     url = BASE + 'game/loadevents'
@@ -234,7 +241,7 @@ def get_game_players(all_players, gameid):
             # add this game's race to the players list
             # print (name, ' ', gameid, ' ', event['playerid'])
             player_add(all_players, name, gameid, 'race',
-                       RACES[event['playerid']])
+                       RACES[event['playerid']], event['accountid'])
 
     for event in events:
         t = event['eventtype']
@@ -331,7 +338,9 @@ def add_winning_player(games, players, new_gameids=None):
     for playername, player in players.items():
         # print (playername)
         for gameid, playerdata in player.items():
-            # print (gamedata['players'][player][gameid])
+            # print (playerdata)
+            if gameid == 'accountid':
+                continue
             check = False
             if new_gameids is None:
                 check = True
@@ -351,8 +360,8 @@ def load_gamedata():
     # define desired keys to load for every academy games
     gamekeys = ['id', 'name', 'status', 'datecreated', 'dateended', 'turn', 'winner']
     # setting maxgames to 17 gives three results since the first 14 are test games
-    # games = get_academy_games(gamekeys, maxgames = 17)
-    games = get_academy_games(gamekeys)
+    games = get_academy_games(gamekeys, maxgames = 17)
+    # games = get_academy_games(gamekeys)
     # First check if we even read any games from the API
     if games is None:
         return None
