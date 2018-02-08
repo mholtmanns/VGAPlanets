@@ -23,14 +23,8 @@ from operator import itemgetter as iget
 from datetime import datetime
 from pathlib import Path
 
-BASE='http://api.planets.nu/'
-RACES={ 1: 'The Solar Federation',
-        2: 'The Lizard Alliance',
-        3: 'The Empire of the Birds',
-        4: 'The Fascist Empire',
-        5: 'The Robotic Imperium',
-        6: 'The Rebel Confederation',
-        7: 'The Missing Colonies of Man'}
+from constants import BASE, RACES
+
 
 ACCOUNT_CACHE = {}
 DATA_FILE = 'player_data.json'
@@ -259,7 +253,7 @@ def get_game_players(all_players, gameid):
                 stat = 'dead'
             name = (name.rstrip(' +')).replace('+', ' ')
             player_add(all_players, name, gameid, 'status',
-                       {0: stat, 1: event['turn']})
+                       {'what': stat, 'when': event['turn']})
 
         # Just in case we see unknown events in the future
         if t in [4, 9] or t > 10:
@@ -270,7 +264,7 @@ def get_game_players(all_players, gameid):
         if player['username'] != 'dead':
             # Check in the  player that are still living 
             player_add(all_players, last_per_race[player['id']]['name'], gameid, 'status',
-                       {0: 'alive', 1: player['score']['turn']})
+                       {'what': 'alive', 'when': player['score']['turn']})
             # print ('Added status for ',last_per_race[player['id']]['name'])
 
         score = crop_scores(player)
