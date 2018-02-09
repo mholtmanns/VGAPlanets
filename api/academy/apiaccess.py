@@ -354,8 +354,8 @@ def load_gamedata():
     # define desired keys to load for every academy games
     gamekeys = ['id', 'name', 'status', 'datecreated', 'dateended', 'turn', 'winner']
     # setting maxgames to 17 gives three results since the first 14 are test games
-    games = get_academy_games(gamekeys, maxgames = 17)
-    # games = get_academy_games(gamekeys)
+    # games = get_academy_games(gamekeys, maxgames = 17)
+    games = get_academy_games(gamekeys)
     # First check if we even read any games from the API
     if games is None:
         return None

@@ -51,13 +51,13 @@ def write_games_csv(data, fieldnames, filename='game_stats.csv'):
 
 def write_per_player_stats(data, filename='player_stats.csv'):
     playerkeys = ['name']
+    endstates = [' finished', ' won', ' dropped', ' resigned', ' died']
     statlist = []
-    for key, race in SHORTRACES.items():
-        statlist.append(race + ' finished')
-        statlist.append(race + ' won')
-        statlist.append(race + ' dropped')
-        statlist.append(race + ' resigned')
-        statlist.append(race + ' died')
+    for stat in endstates:
+        for key, race in SHORTRACES.items():
+            statlist.append(race + stat)
+        statlist.append('Sum' + stat)
+
     playerkeys += statlist
 
     players = data['players']
@@ -87,6 +87,8 @@ def write_per_player_stats(data, filename='player_stats.csv'):
                     playerstat[race + ' dropped'] += 1
                 elif s['what'] == 'resigned':
                     playerstat[race + ' resigned'] += 1
+        for stat in endstates:
+            playerstat['Sum' + stat] = sum(playerstat[race + stat] for race in SHORTRACES.values())
         aa.print_progress(i+1, len(players), prefix = 'Gather player stats:', suffix = 'Done')
         i += 1
     
